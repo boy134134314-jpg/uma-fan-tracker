@@ -2,7 +2,7 @@ name: fetch-fans
 
 on:
   schedule:
-    - cron: '0 */2 * * *'
+    - cron: '0 0,4,7,10,12,13,16 * * *'
   workflow_dispatch:
 
 jobs:
