@@ -1,0 +1,23 @@
+name: fetch-fans
+
+on:
+  schedule:
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run fetch and write sheet
+        env:
+          TD_CLIENT_ID: ${{ secrets.TD_CLIENT_ID }}
+          TD_ACCESS_TOKEN: ${{ secrets.TD_ACCESS_TOKEN }}
+          TD_OPEN_ID: ${{ secrets.TD_OPEN_ID }}
+          TD_BOOK_ID: ${{ secrets.TD_BOOK_ID }}
+          TD_SHEET: ${{ secrets.TD_SHEET }}
+        run: python fetch.py
