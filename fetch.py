@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-GitHub Actions å®æ¶ä»»å¡ï¼æ¯2å°æ¶æåèµé©¬å¨ç¤¾å¢æåç²ä¸ â è¦çåå¥è¾è®¯ææ¡£å¨çº¿è¡¨æ ¼
-æ°æ®æº: umamusume.space å¬å¼APIï¼åç»å½ï¼http://umamusume.space/uma/api/circles/110231887
-åå¥: è¾è®¯ææ¡£ OpenAPI v3 æ¹éæ´æ° /openapi/spreadsheet/v3/files/{fileId}/batchUpdate
-ç¯å¢åéï¼GitHub Secretsï¼:
-  TD_CLIENT_ID     å¼æ¾å¹³å° client_idï¼åºç¨IDï¼
-  TD_ACCESS_TOKEN  å¼æ¾å¹³å° access_tokenï¼30å¤©ææï¼å°æééç½®å¹¶æ´æ° Secretï¼
-  TD_OPEN_ID       å¼æ¾å¹³å° open_id
-  TD_BOOK_ID       å¨çº¿è¡¨æ ¼ fileIdï¼å« $ å·ï¼300000000$CbvczzLVABzrï¼
-  TD_SHEET         å­è¡¨ IDï¼BB08J2ï¼
+GitHub Actions 定时任务：每2小时抓取赛马娘社团成员粉丝 → 覆盖写入腾讯文档在线表格
+数据源: umamusume.space 公开API（免登录）http://umamusume.space/uma/api/circles/110231887
+写入: 腾讯文档 OpenAPI v3 批量更新 /openapi/spreadsheet/v3/files/{fileId}/batchUpdate
+环境变量（GitHub Secrets）:
+  TD_CLIENT_ID     开放平台 client_id（应用ID）
+  TD_ACCESS_TOKEN  开放平台 access_token（30天有效，到期需重置并更新 Secret）
+  TD_OPEN_ID       开放平台 open_id
+  TD_BOOK_ID       在线表格 fileId，含 $ 号（300000000$CbvczzLVABzr）
+  TD_SHEET         子表 ID（BB08J2）
 """
 import os
 import json
@@ -20,7 +20,7 @@ DOCS_BASE = "https://docs.qq.com"
 
 
 def write_sheet(book_id, sheet_id, token, values):
-    """v3 æ¹éæ´æ°ï¼å¨éè¦çåå¥æå®å­è¡¨ï¼ä»ç¬¬1è¡ç¬¬1åå¼å§"""
+    """v3 批量更新：全量覆盖写入指定子表，从第1行第1列开始"""
     rows = []
     for row in values:
         cells = [{"cellValue": {"text": "" if v is None else str(v)}} for v in row]
@@ -54,35 +54,35 @@ def write_sheet(book_id, sheet_id, token, values):
     print("write resp:", out)
     parsed = json.loads(out)
     if parsed.get("code", 0) != 0:
-        raise RuntimeError("åå¥å¤±è´¥ code=%s msg=%s" % (parsed.get("code"), parsed.get("message", "")))
+        raise RuntimeError("写入失败 code=%s msg=%s" % (parsed.get("code"), parsed.get("message", "")))
     for r in parsed.get("data", {}).get("responses", []):
         if r.get("code", 0) != 0:
-            raise RuntimeError("åå¥æä½å¤±è´¥: %s" % json.dumps(r, ensure_ascii=False))
+            raise RuntimeError("写入操作失败: %s" % json.dumps(r, ensure_ascii=False))
 
 
 def main():
-    # 1. æç¤¾å¢æ¥å£
+    # 1. 抓社团接口
     with urllib.request.urlopen(API, timeout=60) as resp:
         data = json.loads(resp.read().decode("utf-8"))
 
-    # æ´æ°æ¶é´ = ç½ç«æ°æ®æ¬èº«çæ´æ°æ¶é´ï¼ranking.updated_atï¼ï¼æ¥å£æ è¯¥å­æ®µæ¶ååºç¨è¿è¡æ¶é´
+    # 更新时间 = 网站数据本身的更新时间（ranking.updated_at）；接口无该字段时兜底用运行时间
     try:
         now = datetime.datetime.fromisoformat(data["ranking"]["updated_at"]).strftime("%Y-%m-%d %H:%M")
     except Exception:
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     today = datetime.date.today()
 
-    # 2. æé è¡¨æ ¼åå®¹ï¼6åï¼æ´æ°æ¶é´/ç¤¾å¢å½æç²ä¸/æå ä¸è¡ï¼è¡¨å¤´ä¸è¡ï¼30åæåï¼
+    # 2. 构造表格内容（6列：更新时间/社团当月粉丝/排名 一行，表头一行，30名成员）
     point = data["ranking"]["point"]
     values = [
-        ["æ´æ°æ¶é´", now, "ç¤¾å¢å½æç²ä¸", point, "æå", data["ranking"]["rank"]],
-        ["æå", "å½æç²ä¸", "ä»æ¥æ°å¢", "ç´¯è®¡ç²ä¸", "å½ææ¥ä¾", "å¨å¢å¤©æ°"],
+        ["更新时间", now, "社团当月粉丝", point, "排名", data["ranking"]["rank"]],
+        ["成员", "当月粉丝", "今日新增", "累计粉丝", "当月日供", "在团天数"],
     ]
     members = sorted(data["members"], key=lambda m: -m["month_fan"])
     for m in members:
         join_date = datetime.datetime.fromisoformat(m["join_time"]).date()
         month_start = datetime.date(today.year, today.month, 1)
-        # å¨å¢å¤©æ° = æ¬æå·²è¿å¤©æ°ï¼10/1 åå¥å¢çä» 10/1 èµ·ç®ï¼æ¬æå¥å¢çä»å¥å¢æ¥èµ·ç®ï¼
+        # 在团天数 = 本月已过天数（10/1 前入团的从 10/1 起算；本月入团的从入团日起算）
         days = (today - max(join_date, month_start)).days + 1
         values.append([
             m["member_name"],
@@ -93,7 +93,7 @@ def main():
             days,
         ])
 
-    # 3. ç¨å¼æ¾å¹³å°åç access_token åå¥è¾è®¯ææ¡£
+    # 3. 用开放平台发的 access_token 写入腾讯文档
     token = os.environ["TD_ACCESS_TOKEN"]
     write_sheet(os.environ["TD_BOOK_ID"], os.environ["TD_SHEET"], token, values)
 
