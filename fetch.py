@@ -98,7 +98,7 @@ def main():
             m["month_fan"],
             m["today_delta"],
             m["fan"],
-            round(m["month_fan"] / days) if days >= 1 else 0,
+            round(m["month_fan"] / max(days, 1)),
             start_dt.strftime("%m-%d %H:%M"),
         ])
 
