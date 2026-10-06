@@ -83,15 +83,22 @@ def main():
     month_start_dt = datetime.datetime.fromisoformat(data["month_start"]).replace(tzinfo=None)
     for m in members:
         join_dt = datetime.datetime.fromisoformat(m["join_time"])
-        # 本月在团起算时间：10/1 前入团的从 month_start 起算；本月入团的从入团时间起算
-        start_dt = max(join_dt, month_start_dt)
+        # 本月在团起算时间：10/1 前入团的从 month_start 起算；本月入团的从入团时间起算；
+        # 20:00 后入团的从次日 00:00 起算（入团当天不计入日供）
+        if join_dt.time() >= datetime.time(20, 0):
+            start_dt = datetime.datetime.combine(
+                join_dt.date() + datetime.timedelta(days=1), datetime.time(0, 0)
+            )
+        else:
+            start_dt = join_dt
+        start_dt = max(start_dt, month_start_dt)
         days = (today - start_dt.date()).days + 1
         values.append([
             m["member_name"],
             m["month_fan"],
             m["today_delta"],
             m["fan"],
-            round(m["month_fan"] / days),
+            round(m["month_fan"] / days) if days >= 1 else 0,
             start_dt.strftime("%m-%d %H:%M"),
         ])
 
