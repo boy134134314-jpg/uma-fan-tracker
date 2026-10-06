@@ -76,21 +76,23 @@ def main():
     point = data["ranking"]["point"]
     values = [
         ["更新时间", now, "社团当月粉丝", point, "排名", data["ranking"]["rank"]],
-        ["成员", "当月粉丝", "今日新增", "累计粉丝", "当月日供", "在团天数"],
+        ["成员", "当月粉丝", "今日新增", "累计粉丝", "当月日供", "在团日期"],
     ]
     members = sorted(data["members"], key=lambda m: -m["month_fan"])
+    # 本月起算基准 = 数据源的 month_start（含时分，如 10-01 05:00）
+    month_start_dt = datetime.datetime.fromisoformat(data["month_start"]).replace(tzinfo=None)
     for m in members:
-        join_date = datetime.datetime.fromisoformat(m["join_time"]).date()
-        month_start = datetime.date(today.year, today.month, 1)
-        # 在团天数 = 本月已过天数（10/1 前入团的从 10/1 起算；本月入团的从入团日起算）
-        days = (today - max(join_date, month_start)).days + 1
+        join_dt = datetime.datetime.fromisoformat(m["join_time"])
+        # 本月在团起算时间：10/1 前入团的从 month_start 起算；本月入团的从入团时间起算
+        start_dt = max(join_dt, month_start_dt)
+        days = (today - start_dt.date()).days + 1
         values.append([
             m["member_name"],
             m["month_fan"],
             m["today_delta"],
             m["fan"],
             round(m["month_fan"] / days),
-            days,
+            start_dt.strftime("%m-%d %H:%M"),
         ])
 
     # 3. 用开放平台发的 access_token 写入腾讯文档
