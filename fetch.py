@@ -76,7 +76,7 @@ def main():
     point = data["ranking"]["point"]
     values = [
         ["更新时间", now, "社团当月粉丝", point, "排名", data["ranking"]["rank"]],
-        ["成员", "当月粉丝", "今日新增", "当月日供", "在团日期", ""],
+        ["成员", "当月粉丝", "今日新增", "当月日供", "在团日期"],
     ]
     members = sorted(data["members"], key=lambda m: -m["month_fan"])
     # 本月起算基准 = 数据源的 month_start（含时分，如 10-01 05:00）
@@ -99,7 +99,6 @@ def main():
             m["today_delta"],
             round(m["month_fan"] / max(days, 1)),
             start_dt.strftime("%m-%d %H:%M"),
-            "",
         ])
 
     # 3. 用开放平台发的 access_token 写入腾讯文档
