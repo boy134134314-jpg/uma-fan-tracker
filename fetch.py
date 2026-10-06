@@ -72,11 +72,11 @@ def main():
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     today = datetime.date.today()
 
-    # 2. 构造表格内容（6列：更新时间/社团当月粉丝/排名 一行，表头一行，30名成员）
+    # 2. 构造表格内容（第一行社团信息 6 列；表头与成员数据 5 列：成员/当月粉丝/今日新增/当月日供/在团日期）
     point = data["ranking"]["point"]
     values = [
         ["更新时间", now, "社团当月粉丝", point, "排名", data["ranking"]["rank"]],
-        ["成员", "当月粉丝", "今日新增", "累计粉丝", "当月日供", "在团日期"],
+        ["成员", "当月粉丝", "今日新增", "当月日供", "在团日期", ""],
     ]
     members = sorted(data["members"], key=lambda m: -m["month_fan"])
     # 本月起算基准 = 数据源的 month_start（含时分，如 10-01 05:00）
@@ -97,9 +97,9 @@ def main():
             m["member_name"],
             m["month_fan"],
             m["today_delta"],
-            m["fan"],
             round(m["month_fan"] / max(days, 1)),
             start_dt.strftime("%m-%d %H:%M"),
+            "",
         ])
 
     # 3. 用开放平台发的 access_token 写入腾讯文档
