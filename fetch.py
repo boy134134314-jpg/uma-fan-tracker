@@ -12,8 +12,10 @@ GitHub Actions 定时任务：每2小时抓取赛马娘社团成员粉丝 → �
 
 写入布局：
   B2:F33  更新时间信息行 + 表头 + 成员数据（成员/当月粉丝/今日新增/当月日供/在团日期）
-  G3:K33  手工区自动更新：高于最低(月粉-400万x在团天数) / 高于最高(月粉-500万x在团天数)
-          / 空列 / 不够最低的(月粉<400万x天数) / 不够最高的(月粉<500万x天数)
+  J3:K33  自动更新：不够最低的(月粉<最低标准x天数) / 不够最高的(月粉<最高标准x天数)
+  G/H 列（高于最低/高于最高）由文档公式自动计算（引用 A3/A6 标准），脚本不写这两列
+  标准值从文档 A 列读取（A3=日供最低粉丝、A6=日供最高粉丝），用户手改 A 列即可生效；
+  读不到时回退默认 4000000 / 5000000
   在团天数口径同当月日供：20:00后入团从次日00:00起算，入团当天兜底1天
 """
 import os
@@ -66,6 +68,63 @@ def write_sheet(book_id, sheet_id, token, values, start_row, start_column):
             raise RuntimeError("写入操作失败: %s" % json.dumps(r, ensure_ascii=False))
 
 
+def read_range(book_id, sheet_id, token, range_name):
+    """读取表格指定区域，返回二维列表（每格为字符串或数字或空）"""
+    req = urllib.request.Request(
+        DOCS_BASE + "/openapi/spreadsheet/v3/files/%s/%s/%s" % (book_id, sheet_id, range_name),
+        headers={
+            "Access-Token": token,
+            "Client-Id": os.environ["TD_CLIENT_ID"],
+            "Open-Id": os.environ["TD_OPEN_ID"],
+            "Accept": "application/json",
+        },
+        method="GET",
+    )
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        out = json.loads(resp.read().decode("utf-8"))
+    if out.get("code", 0) != 0:
+        raise RuntimeError("读取失败 code=%s msg=%s" % (out.get("code"), out.get("message", "")))
+    rows = out.get("gridData", {}).get("rows", [])
+    result = []
+    for row in rows:
+        line = []
+        for v in row.get("values", []):
+            cv = v.get("cellValue") or {}
+            if "text" in cv:
+                line.append(cv["text"])
+            elif "number" in cv:
+                line.append(cv["number"])
+            else:
+                line.append("")
+        result.append(line)
+    return result
+
+
+def read_standard(book_id, sheet_id, token):
+    """从 A 列读取日供最低/最高标准（标签下一行的数值）；读不到时回退默认值"""
+    min_std = 4000000
+    max_std = 5000000
+    try:
+        rows = read_range(book_id, sheet_id, token, "A1:A10")
+        for i in range(len(rows) - 1):
+            label = str(rows[i][0] if rows[i] else "").strip()
+            val_raw = rows[i + 1][0] if rows[i + 1] else ""
+            if not label or val_raw == "":
+                continue
+            try:
+                val = float(val_raw)
+            except (TypeError, ValueError):
+                continue
+            if "最低" in label:
+                min_std = val
+            elif "最高" in label:
+                max_std = val
+    except Exception as e:
+        print("read standard failed, use defaults:", e)
+    print("标准值: 日供最低=%.0f 日供最高=%.0f" % (min_std, max_std))
+    return min_std, max_std
+
+
 def calc_days(join_dt, month_start_dt, today):
     """在团天数（口径同当月日供）：20:00后入团从次日00:00起算；10/1前入团从本月起算"""
     if join_dt.time() >= datetime.time(20, 0):
@@ -83,6 +142,10 @@ def main():
     # 1. 抓社团接口
     with urllib.request.urlopen(API, timeout=60) as resp:
         data = json.loads(resp.read().decode("utf-8"))
+
+    # 数据源 ranking 字段临时缺失时跳过本次写入（保留表格上次成功数据），下次定时任务自动重试
+    if data.get("ranking") is None:
+        raise RuntimeError("数据源 ranking 缺失，跳过本次写入（数据源临时故障），下次定时任务自动重试")
 
     # 更新时间 = 网站数据本身的更新时间（ranking.updated_at）；接口无该字段时兜底用运行时间
     try:
@@ -113,24 +176,23 @@ def main():
             start_dt.strftime("%m-%d %H:%M"),
         ])
 
-    # 3. 构造 G3:K33（高于最低/高于最高/空/不够最低的/不够最高的）
-    lo = [m["member_name"] for m in members if m["month_fan"] < 4000000 * days_map[m["member_name"]]]
-    hi = [m["member_name"] for m in members if m["month_fan"] < 5000000 * days_map[m["member_name"]]]
-    gh_values = [["高于最低", "高于最高", "", "不够最低的", "不够最高的"]]
+    # 3. 读 A 列标准值（用户手改即可生效），构造 J3:K33（不够最低的/不够最高的）
+    token = os.environ["TD_ACCESS_TOKEN"]
+    book_id = os.environ["TD_BOOK_ID"]
+    sheet_id = os.environ["TD_SHEET"]
+    min_std, max_std = read_standard(book_id, sheet_id, token)
+    lo = [m["member_name"] for m in members if m["month_fan"] < min_std * days_map[m["member_name"]]]
+    hi = [m["member_name"] for m in members if m["month_fan"] < max_std * days_map[m["member_name"]]]
+    jk_values = [["不够最低的", "不够最高的"]]
     for i, m in enumerate(members):
-        d = days_map[m["member_name"]]
-        gh_values.append([
-            m["month_fan"] - 4000000 * d,
-            m["month_fan"] - 5000000 * d,
-            "",
+        jk_values.append([
             lo[i] if i < len(lo) else "",
             hi[i] if i < len(hi) else "",
         ])
 
     # 4. 用开放平台发的 access_token 写入腾讯文档
-    token = os.environ["TD_ACCESS_TOKEN"]
-    write_sheet(os.environ["TD_BOOK_ID"], os.environ["TD_SHEET"], token, values, 1, 1)
-    write_sheet(os.environ["TD_BOOK_ID"], os.environ["TD_SHEET"], token, gh_values, 2, 6)
+    write_sheet(book_id, sheet_id, token, values, 1, 1)
+    write_sheet(book_id, sheet_id, token, jk_values, 2, 9)
 
     print("ok, members=%d, point=%s, rank=%s, 不够最低=%d, 不够最高=%d"
           % (len(members), point, data["ranking"]["rank"], len(lo), len(hi)))
