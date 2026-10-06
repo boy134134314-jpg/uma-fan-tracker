@@ -187,8 +187,8 @@ def main():
     for i, m in enumerate(members):
         d = days_map[m["member_name"]]
         gh_values.append([
-            m["month_fan"] - min_std * d,
-            m["month_fan"] - max_std * d,
+            int(m["month_fan"] - min_std * d),
+            int(m["month_fan"] - max_std * d),
             "",
             lo[i] if i < len(lo) else "",
             hi[i] if i < len(hi) else "",
