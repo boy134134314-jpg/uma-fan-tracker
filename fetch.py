@@ -12,8 +12,8 @@ GitHub Actions 定时任务：每2小时抓取赛马娘社团成员粉丝 → �
 
 写入布局：
   B2:F33  更新时间信息行 + 表头 + 成员数据（成员/当月粉丝/今日新增/当月日供/在团日期）
-  J3:K33  自动更新：不够最低的(月粉<最低标准x天数) / 不够最高的(月粉<最高标准x天数)
-  G/H 列（高于最低/高于最高）由文档公式自动计算（引用 A3/A6 标准），脚本不写这两列
+  G3:K33  自动更新：高于最低(月粉-最低标准x在团天数) / 高于最高(月粉-最高标准x在团天数)
+          / 空列 / 不够最低的(月粉<最低标准x天数) / 不够最高的(月粉<最高标准x天数)
   标准值从文档 A 列读取（A3=日供最低粉丝、A6=日供最高粉丝），用户手改 A 列即可生效；
   读不到时回退默认 4000000 / 5000000
   在团天数口径同当月日供：20:00后入团从次日00:00起算，入团当天兜底1天
@@ -176,23 +176,27 @@ def main():
             start_dt.strftime("%m-%d %H:%M"),
         ])
 
-    # 3. 读 A 列标准值（用户手改即可生效），构造 J3:K33（不够最低的/不够最高的）
+    # 3. 读 A 列标准值（用户手改即可生效），构造 G3:K33（高于最低/高于最高/空列/不够最低的/不够最高的）
     token = os.environ["TD_ACCESS_TOKEN"]
     book_id = os.environ["TD_BOOK_ID"]
     sheet_id = os.environ["TD_SHEET"]
     min_std, max_std = read_standard(book_id, sheet_id, token)
     lo = [m["member_name"] for m in members if m["month_fan"] < min_std * days_map[m["member_name"]]]
     hi = [m["member_name"] for m in members if m["month_fan"] < max_std * days_map[m["member_name"]]]
-    jk_values = [["不够最低的", "不够最高的"]]
+    gh_values = [["高于最低", "高于最高", "", "不够最低的", "不够最高的"]]
     for i, m in enumerate(members):
-        jk_values.append([
+        d = days_map[m["member_name"]]
+        gh_values.append([
+            m["month_fan"] - min_std * d,
+            m["month_fan"] - max_std * d,
+            "",
             lo[i] if i < len(lo) else "",
             hi[i] if i < len(hi) else "",
         ])
 
     # 4. 用开放平台发的 access_token 写入腾讯文档
     write_sheet(book_id, sheet_id, token, values, 1, 1)
-    write_sheet(book_id, sheet_id, token, jk_values, 2, 9)
+    write_sheet(book_id, sheet_id, token, gh_values, 2, 6)
 
     print("ok, members=%d, point=%s, rank=%s, 不够最低=%d, 不够最高=%d"
           % (len(members), point, data["ranking"]["rank"], len(lo), len(hi)))
