@@ -9,6 +9,12 @@ GitHub Actions 定时任务：每2小时抓取赛马娘社团成员粉丝 → �
   TD_OPEN_ID       开放平台 open_id
   TD_BOOK_ID       在线表格 fileId，含 $ 号（300000000$CbvczzLVABzr）
   TD_SHEET         子表 ID（BB08J2）
+
+写入布局：
+  B2:F33  更新时间信息行 + 表头 + 成员数据（成员/当月粉丝/今日新增/当月日供/在团日期）
+  G3:K33  手工区自动更新：高于最低(月粉-400万x在团天数) / 高于最高(月粉-500万x在团天数)
+          / 空列 / 不够最低的(月粉<400万x天数) / 不够最高的(月粉<500万x天数)
+  在团天数口径同当月日供：20:00后入团从次日00:00起算，入团当天兜底1天
 """
 import os
 import json
@@ -19,8 +25,8 @@ API = "http://umamusume.space/uma/api/circles/110231887"
 DOCS_BASE = "https://docs.qq.com"
 
 
-def write_sheet(book_id, sheet_id, token, values):
-    """v3 批量更新：全量覆盖写入指定子表，从第1行第1列开始"""
+def write_sheet(book_id, sheet_id, token, values, start_row, start_column):
+    """v3 批量更新：全量覆盖写入指定子表，从 (start_row, start_column) 起（0 索引）"""
     rows = []
     for row in values:
         cells = [{"cellValue": {"text": "" if v is None else str(v)}} for v in row]
@@ -30,8 +36,8 @@ def write_sheet(book_id, sheet_id, token, values):
             "updateRangeRequest": {
                 "sheetId": sheet_id,
                 "gridData": {
-                    "startRow": 1,
-                    "startColumn": 1,
+                    "startRow": start_row,
+                    "startColumn": start_column,
                     "rows": rows,
                 },
             }
@@ -60,6 +66,19 @@ def write_sheet(book_id, sheet_id, token, values):
             raise RuntimeError("写入操作失败: %s" % json.dumps(r, ensure_ascii=False))
 
 
+def calc_days(join_dt, month_start_dt, today):
+    """在团天数（口径同当月日供）：20:00后入团从次日00:00起算；10/1前入团从本月起算"""
+    if join_dt.time() >= datetime.time(20, 0):
+        start_dt = datetime.datetime.combine(
+            join_dt.date() + datetime.timedelta(days=1), datetime.time(0, 0)
+        )
+    else:
+        start_dt = join_dt
+    start_dt = max(start_dt, month_start_dt)
+    days = (today - start_dt.date()).days + 1
+    return days, start_dt
+
+
 def main():
     # 1. 抓社团接口
     with urllib.request.urlopen(API, timeout=60) as resp:
@@ -72,27 +91,20 @@ def main():
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     today = datetime.date.today()
 
-    # 2. 构造表格内容（第一行社团信息 6 列；表头与成员数据 5 列：成员/当月粉丝/今日新增/当月日供/在团日期）
+    # 2. 构造 B2:F33 内容（第一行社团信息 6 列；表头与成员数据 5 列）
     point = data["ranking"]["point"]
     values = [
         ["更新时间", now, "社团当月粉丝", point, "排名", data["ranking"]["rank"]],
         ["成员", "当月粉丝", "今日新增", "当月日供", "在团日期"],
     ]
-    members = sorted(data["members"], key=lambda m: -m["month_fan"])
     # 本月起算基准 = 数据源的 month_start（含时分，如 10-01 05:00）
     month_start_dt = datetime.datetime.fromisoformat(data["month_start"]).replace(tzinfo=None)
+    members = sorted(data["members"], key=lambda m: -m["month_fan"])
+    days_map = {}
     for m in members:
         join_dt = datetime.datetime.fromisoformat(m["join_time"])
-        # 本月在团起算时间：10/1 前入团的从 month_start 起算；本月入团的从入团时间起算；
-        # 20:00 后入团的从次日 00:00 起算（入团当天不计入日供）
-        if join_dt.time() >= datetime.time(20, 0):
-            start_dt = datetime.datetime.combine(
-                join_dt.date() + datetime.timedelta(days=1), datetime.time(0, 0)
-            )
-        else:
-            start_dt = join_dt
-        start_dt = max(start_dt, month_start_dt)
-        days = (today - start_dt.date()).days + 1
+        days, start_dt = calc_days(join_dt, month_start_dt, today)
+        days_map[m["member_name"]] = days
         values.append([
             m["member_name"],
             m["month_fan"],
@@ -101,11 +113,27 @@ def main():
             start_dt.strftime("%m-%d %H:%M"),
         ])
 
-    # 3. 用开放平台发的 access_token 写入腾讯文档
-    token = os.environ["TD_ACCESS_TOKEN"]
-    write_sheet(os.environ["TD_BOOK_ID"], os.environ["TD_SHEET"], token, values)
+    # 3. 构造 G3:K33（高于最低/高于最高/空/不够最低的/不够最高的）
+    lo = [m["member_name"] for m in members if m["month_fan"] < 4000000 * days_map[m["member_name"]]]
+    hi = [m["member_name"] for m in members if m["month_fan"] < 5000000 * days_map[m["member_name"]]]
+    gh_values = [["高于最低", "高于最高", "", "不够最低的", "不够最高的"]]
+    for i, m in enumerate(members):
+        d = days_map[m["member_name"]]
+        gh_values.append([
+            m["month_fan"] - 4000000 * d,
+            m["month_fan"] - 5000000 * d,
+            "",
+            lo[i] if i < len(lo) else "",
+            hi[i] if i < len(hi) else "",
+        ])
 
-    print("ok, members=%d, point=%s, rank=%s" % (len(members), point, data["ranking"]["rank"]))
+    # 4. 用开放平台发的 access_token 写入腾讯文档
+    token = os.environ["TD_ACCESS_TOKEN"]
+    write_sheet(os.environ["TD_BOOK_ID"], os.environ["TD_SHEET"], token, values, 1, 1)
+    write_sheet(os.environ["TD_BOOK_ID"], os.environ["TD_SHEET"], token, gh_values, 2, 6)
+
+    print("ok, members=%d, point=%s, rank=%s, 不够最低=%d, 不够最高=%d"
+          % (len(members), point, data["ranking"]["rank"], len(lo), len(hi)))
 
 
 if __name__ == "__main__":
