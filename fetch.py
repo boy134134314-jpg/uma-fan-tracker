@@ -162,12 +162,17 @@ def main():
     ]
     # 本月起算基准 = 数据源的 month_start（含时分，如 10-01 05:00）
     month_start_dt = datetime.datetime.fromisoformat(data["month_start"]).replace(tzinfo=None)
-    members = sorted(data["members"], key=lambda m: -m["month_fan"])
+    # 先算每个成员的在团天数（20:00后入团从次日00:00起算），再按当月日供（月粉/在团天数）降序排序
     days_map = {}
+    for m in data["members"]:
+        join_dt = datetime.datetime.fromisoformat(m["join_time"])
+        days, _ = calc_days(join_dt, month_start_dt, today)
+        days_map[m["member_name"]] = days
+    members = sorted(data["members"], key=lambda m: -(m["month_fan"] / max(days_map[m["member_name"]], 1)))
     for m in members:
         join_dt = datetime.datetime.fromisoformat(m["join_time"])
-        days, start_dt = calc_days(join_dt, month_start_dt, today)
-        days_map[m["member_name"]] = days
+        days = days_map[m["member_name"]]
+        _, start_dt = calc_days(join_dt, month_start_dt, today)
         values.append([
             m["member_name"],
             m["month_fan"],
