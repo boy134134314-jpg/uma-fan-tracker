@@ -15,8 +15,8 @@ FILE_ID = "300000000$CbvczzLVABzr"
 SHEET = "BB08J2"
 
 # 日供门槛（天）
-MIN_STD = 3000000   # 最低日供300万
-MAX_STD = 5000000   # 最高日供500万
+MIN_STD = 5000000   # 最低日供500万
+MAX_STD = 7000000   # 最高日供700万
 
 
 def _cell(v):
