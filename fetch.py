@@ -65,11 +65,13 @@ def main():
     month_start = datetime.date(today.year, today.month, 1)
     days_elapsed = (today - month_start).days + 1
 
-    point = data["ranking"]["point"]
+    # ranking字段可能为None，从month_point_history最后一条取
+    mp_last = data["month_point_history"][-1] if data.get("month_point_history") else {}
+    point = mp_last.get("point", 0)
+    rank = mp_last.get("rank", 0)
 
-    # B列主表：更新信息行 + 表头 + 成员
     values = [
-        ["更新时间", now, "社团当月粉丝", point, "排名", data["ranking"]["rank"]],
+        ["更新时间", now, "社团当月粉丝", point, "排名", rank],
         ["成员", "当月粉丝", "今日新增", "累计粉丝", "当月日供", "在团天数"],
     ]
 
@@ -130,7 +132,7 @@ def main():
     write_range(token, cid, oid, 2, 14, join_rows)
 
     print("ok, members=%d, point=%s, rank=%s, days=%d, join_written=%d" % (
-        len(members), point, data["ranking"]["rank"], days_elapsed, len(join_rows)))
+        len(members), point, rank, days_elapsed, len(join_rows)))
 
 
 if __name__ == "__main__":
