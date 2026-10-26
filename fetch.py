@@ -60,8 +60,9 @@ def main():
     with urllib.request.urlopen(API, timeout=60) as resp:
         data = json.loads(resp.read().decode("utf-8"))
 
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-    today = datetime.date.today()
+    bj = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
+    now = bj.strftime("%Y-%m-%d %H:%M")
+    today = bj.date()
     month_start = datetime.date(today.year, today.month, 1)
     days_elapsed = (today - month_start).days + 1
 
