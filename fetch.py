@@ -97,20 +97,19 @@ def main():
             days,
         ])
 
-    # G:K列：高于最低/最高（startRow=2, startColumn=6）
+    # G:K列：总日供差 + 日供不达标名单（startRow=2, startColumn=6）
     lo = [m["member_name"] for m in members if m["month_fan"] < MIN_STD * days_map[m["member_name"]]]
-    hi = [m["member_name"] for m in members if m["month_fan"] > MAX_STD * days_map[m["member_name"]]]
     gh_rows = [{"values": [
-        _cell("高于最低"), _cell("高于最高"), _cell(""), _cell("不够最低的"), _cell("不够最高的")
+        _cell("总日供差"), _cell(""), _cell("日供不达标的成员"), _cell(""), _cell("")
     ]}]
     for i, m in enumerate(members):
         d = days_map[m["member_name"]]
         gh_rows.append({"values": [
             _cell(int(m["month_fan"]) - MIN_STD * d),
-            _cell(int(m["month_fan"]) - MAX_STD * d),
             _cell(""),
             _cell(lo[i] if i < len(lo) else ""),
-            _cell(hi[i] if i < len(hi) else ""),
+            _cell(""),
+            _cell(""),
         ]})
 
     # O列：入团时间（startRow=2, startColumn=14）
