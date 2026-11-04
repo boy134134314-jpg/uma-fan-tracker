@@ -121,14 +121,20 @@ def main():
     cid = os.environ["TD_CLIENT_ID"]
     oid = os.environ["TD_OPEN_ID"]
 
-    # 写B列主表
+    # 写B列主表（末尾补5行空，清掉退团成员的残留旧数据）
     main_rows = [{"values": [_cell(v) for v in row]} for row in values]
+    for _ in range(5):
+        main_rows.append({"values": [_cell("") for _ in range(6)]})
     write_range(token, cid, oid, 1, 1, main_rows)
 
-    # 写G:K列
+    # 写G:K列（末尾补5行空）
+    for _ in range(5):
+        gh_rows.append({"values": [_cell("") for _ in range(5)]})
     write_range(token, cid, oid, 2, 6, gh_rows)
 
-    # 写O列入团时间
+    # 写O列入团时间（末尾补5行空）
+    for _ in range(5):
+        join_rows.append({"values": [_cell("")]})
     write_range(token, cid, oid, 2, 14, join_rows)
 
     print("ok, members=%d, point=%s, rank=%s, days=%d, join_written=%d" % (
