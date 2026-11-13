@@ -4,6 +4,7 @@
 每小时由GitHub Actions触发，抓 umamusume.space 数据写腾讯文档
 """
 import os
+import re
 import json
 import datetime
 import urllib.request
@@ -14,6 +15,7 @@ DOCS_BASE = "https://docs.qq.com"
 FILE_ID = "300000000$CbvczzLVABzr"
 SHEET = "BB08J2"            # 主表 工作表1
 SHEET_MONTHLY = "z4hWf9"    # 月供总表
+SHEET_HISTORY = "MMDFno"    # 历史记录
 
 # 日供门槛（天）
 MIN_STD = 3000000   # 最低日供300万
@@ -55,6 +57,41 @@ def write_range(token, cid, oid, start_row, start_col, rows, sheet_id=SHEET):
     )
     with urllib.request.urlopen(req, timeout=60) as resp:
         print("write resp:", resp.read().decode("utf-8"))
+
+
+def _cell_text(c):
+    cv = (c or {}).get("cellValue") or {}
+    if "number" in cv and cv["number"] is not None:
+        return cv["number"]
+    return cv.get("text", "")
+
+
+def read_range(token, cid, oid, sheet_id, rng):
+    url = DOCS_BASE + "/openapi/spreadsheet/v3/files/%s/%s/%s" % (
+        urllib.parse.quote(FILE_ID, safe=""),
+        sheet_id,
+        urllib.parse.quote(rng, safe=""),
+    )
+    req = urllib.request.Request(
+        url, headers={
+            "Access-Token": token,
+            "Client-Id": cid,
+            "Open-Id": oid,
+            "Accept": "application/json",
+        }, method="GET",
+    )
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        body = json.loads(resp.read().decode("utf-8"))
+    rows = (body.get("data") or {}).get("gridData", {}).get("rows", [])
+    out = []
+    for row in rows:
+        out.append([_cell_text(c) for c in (row.get("values") or [])])
+    return out
+
+
+def _norm(name):
+    # 成员名归一化：去空白与常见全/半角标点，便于跨表匹配
+    return re.sub(r"[\s，,．.。・·!！?？]", "", str(name or ""))
 
 
 def main():
@@ -103,24 +140,14 @@ def main():
     gh_rows = [{"values": [
         _cell("总日供差"), _cell(""), _cell("日供不达标的成员"), _cell(""), _cell("")
     ]}]
-    # 月供总表 D:H列：成员/当月累计/累计/日供/天数
-    monthly_rows = []
     for i, m in enumerate(members):
         d = days_map[m["member_name"]]
-        daily = round(m["month_fan"] / d)
         gh_rows.append({"values": [
             _cell(int(m["month_fan"]) - MIN_STD * d),
             _cell(""),
             _cell(lo[i] if i < len(lo) else ""),
             _cell(""),
             _cell(""),
-        ]})
-        monthly_rows.append({"values": [
-            _cell(m["member_name"]),
-            _cell(int(m["month_fan"])),
-            _cell(int(m["fan"])),
-            _cell(daily),
-            _cell(d),
         ]})
 
     # O列：入团时间（startRow=2, startColumn=14）
@@ -148,8 +175,64 @@ def main():
         join_rows.append({"values": [_cell("")]})
     write_range(token, cid, oid, 2, 14, join_rows)
 
-    # 写月供总表：C2统计月份；D3起成员数据（末尾补5行空）
-    month_row = [{"values": [_cell(bj.strftime("%Y-%m"))]}]
+    # ---- 月供总表：上月整月结算定格 ----
+    if today.month == 1:
+        prev_year, prev_month = today.year - 1, 12
+    else:
+        prev_year, prev_month = today.year, today.month - 1
+    prev_first = datetime.date(prev_year, prev_month, 1)
+    prev_last = month_start - datetime.timedelta(days=1)
+    prev_days = (month_start - prev_first).days
+
+    fhist = data.get("members_fan_history", {})
+
+    def snap(vid, prefix):
+        h = fhist.get(str(vid), {}).get("history", [])
+        for p in h:
+            if p["captured_at"].startswith(prefix):
+                return p["fan"]
+        return None
+
+    # 读历史记录表，定位“上月初粉丝”列，建 归一化名->月初累计 基线
+    hist_rows = read_range(token, cid, oid, SHEET_HISTORY, "A1:G40")
+    header = hist_rows[1] if len(hist_rows) > 1 else []
+    label = "%d月初粉丝" % prev_month
+    col_idx = next((i for i, h in enumerate(header) if str(h).strip() == label), None)
+    baseline = {}
+    for r in hist_rows[2:]:
+        if r and str(r[0]).strip():
+            v = r[col_idx] if col_idx is not None and len(r) > col_idx else ""
+            baseline[_norm(r[0])] = v
+    print("history header:", header, "| baseline col:", col_idx, "| baseline n:", len(baseline))
+
+    month_prefix = month_start.strftime("%Y-%m-%dT00:00:00")
+    monthly_rows = []
+    for m in members:
+        name = m["member_name"]
+        join = datetime.datetime.fromisoformat(m["join_time"]).date()
+        f_end = snap(m["viewer_id"], month_prefix)
+        f_start = baseline.get(_norm(name))
+        if join > prev_last:
+            # 本月新入团，上月不在团：只留名字，数值留空
+            monthly_rows.append({"values": [_cell(name), _cell(""), _cell(""), _cell(""), _cell("")]})
+            continue
+        if join <= prev_first:
+            hdays = prev_days
+        else:
+            hdays = (prev_last - join).days + 1
+        hdays = max(hdays, 1)
+        e_val = f_start if f_start not in ("", None) else ""
+        f_val = f_end if f_end is not None else ""
+        if isinstance(e_val, (int, float)) and isinstance(f_end, (int, float)):
+            daily = round((f_end - e_val) / hdays)
+        else:
+            daily = ""
+        monthly_rows.append({"values": [
+            _cell(name), _cell(e_val), _cell(f_val), _cell(daily), _cell(hdays),
+        ]})
+
+    # 写月供总表：C2结算月份；D3起成员数据（末尾补5行空）
+    month_row = [{"values": [_cell("%d-%02d" % (prev_year, prev_month))]}]
     write_range(token, cid, oid, 1, 2, month_row, sheet_id=SHEET_MONTHLY)
     for _ in range(5):
         monthly_rows.append({"values": [_cell("") for _ in range(5)]})
