@@ -267,7 +267,11 @@ def main():
             _cell(name), _cell(e_val), _cell(f_val), _cell(daily), _cell(hdays),
         ]})
 
-    # 写月供总表：C2结算月份；D3起成员数据（先清空旧数据区，避免旧数值残留）
+    # 写月供总表：第2行表头；C2结算月份；D3起成员数据（先清空旧数据区，避免旧数值残留）
+    header_row = [{"values": [
+        _cell("成员"), _cell("月初累计"), _cell("月末累计"), _cell("日供"), _cell("在团天数"),
+    ]}]
+    write_range(token, cid, oid, 1, 3, header_row, sheet_id=SHEET_MONTHLY)
     month_row = [{"values": [_cell("%d-%02d" % (prev_year, prev_month))]}]
     write_range(token, cid, oid, 1, 2, month_row, sheet_id=SHEET_MONTHLY)
     clear_range(token, cid, oid, SHEET_MONTHLY, "D3:H40")
