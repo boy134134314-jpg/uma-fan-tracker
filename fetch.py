@@ -12,11 +12,12 @@ import urllib.parse
 API = "http://umamusume.space/uma/api/circles/110231887"
 DOCS_BASE = "https://docs.qq.com"
 FILE_ID = "300000000$CbvczzLVABzr"
-SHEET = "BB08J2"
+SHEET = "BB08J2"            # 主表 工作表1
+SHEET_MONTHLY = "z4hWf9"    # 月供总表
 
 # 日供门槛（天）
 MIN_STD = 3000000   # 最低日供300万
-MAX_STD = 7000000   # 最高日供700万
+MAX_STD = 7000000   # 最高日供700万（主表已不用，仅保留）
 
 
 def _cell(v):
@@ -27,11 +28,11 @@ def _cell(v):
     return {"cellValue": {"text": str(v)}}
 
 
-def write_range(token, cid, oid, start_row, start_col, rows):
+def write_range(token, cid, oid, start_row, start_col, rows, sheet_id=SHEET):
     body = {
         "requests": [{
             "updateRangeRequest": {
-                "sheetId": SHEET,
+                "sheetId": sheet_id,
                 "gridData": {
                     "startRow": start_row,
                     "startColumn": start_col,
@@ -102,14 +103,24 @@ def main():
     gh_rows = [{"values": [
         _cell("总日供差"), _cell(""), _cell("日供不达标的成员"), _cell(""), _cell("")
     ]}]
+    # 月供总表 D:H列：成员/当月累计/累计/日供/天数
+    monthly_rows = []
     for i, m in enumerate(members):
         d = days_map[m["member_name"]]
+        daily = round(m["month_fan"] / d)
         gh_rows.append({"values": [
             _cell(int(m["month_fan"]) - MIN_STD * d),
             _cell(""),
             _cell(lo[i] if i < len(lo) else ""),
             _cell(""),
             _cell(""),
+        ]})
+        monthly_rows.append({"values": [
+            _cell(m["member_name"]),
+            _cell(int(m["month_fan"])),
+            _cell(int(m["fan"])),
+            _cell(daily),
+            _cell(d),
         ]})
 
     # O列：入团时间（startRow=2, startColumn=14）
@@ -136,6 +147,13 @@ def main():
     for _ in range(5):
         join_rows.append({"values": [_cell("")]})
     write_range(token, cid, oid, 2, 14, join_rows)
+
+    # 写月供总表：C2统计月份；D3起成员数据（末尾补5行空）
+    month_row = [{"values": [_cell(bj.strftime("%Y-%m"))]}]
+    write_range(token, cid, oid, 1, 2, month_row, sheet_id=SHEET_MONTHLY)
+    for _ in range(5):
+        monthly_rows.append({"values": [_cell("") for _ in range(5)]})
+    write_range(token, cid, oid, 2, 3, monthly_rows, sheet_id=SHEET_MONTHLY)
 
     print("ok, members=%d, point=%s, rank=%s, days=%d, join_written=%d" % (
         len(members), point, rank, days_elapsed, len(join_rows)))
