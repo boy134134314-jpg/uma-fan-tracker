@@ -195,15 +195,24 @@ def main():
 
     # 读历史记录表，定位“上月初粉丝”列，建 归一化名->月初累计 基线
     hist_rows = read_range(token, cid, oid, SHEET_HISTORY, "A1:G40")
-    header = hist_rows[1] if len(hist_rows) > 1 else []
+    print("history raw rows:", hist_rows[:4])
+    # 自动在前 3 行里找表头行（含“成员名”或“月初粉丝”），避免前导空行被裁剪导致错位
+    header_row_idx = None
+    for i, r in enumerate(hist_rows[:3]):
+        if any(("成员名" in str(x)) or ("月初粉丝" in str(x)) for x in r):
+            header_row_idx = i
+            break
+    if header_row_idx is None:
+        header_row_idx = 1
+    header = hist_rows[header_row_idx]
     label = "%d月初粉丝" % prev_month
     col_idx = next((i for i, h in enumerate(header) if str(h).strip() == label), None)
     baseline = {}
-    for r in hist_rows[2:]:
+    for r in hist_rows[header_row_idx + 1:]:
         if r and str(r[0]).strip():
             v = r[col_idx] if col_idx is not None and len(r) > col_idx else ""
             baseline[_norm(r[0])] = v
-    print("history header:", header, "| baseline col:", col_idx, "| baseline n:", len(baseline))
+    print("history header row:", header_row_idx, header, "| baseline col:", col_idx, "| baseline n:", len(baseline))
 
     month_prefix = month_start.strftime("%Y-%m-%dT00:00:00")
     monthly_rows = []
