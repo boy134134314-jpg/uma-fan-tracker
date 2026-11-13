@@ -59,6 +59,26 @@ def write_range(token, cid, oid, start_row, start_col, rows, sheet_id=SHEET):
         print("write resp:", resp.read().decode("utf-8"))
 
 
+def clear_range(token, cid, oid, sheet_id, rng):
+    url = DOCS_BASE + "/openapi/sheetbook/v2/%s/values/%s!%s:clear" % (
+        urllib.parse.quote(FILE_ID, safe=""),
+        sheet_id,
+        urllib.parse.quote(rng, safe=":"),
+    )
+    req = urllib.request.Request(
+        url, data=b"",
+        headers={
+            "Access-Token": token,
+            "Client-Id": cid,
+            "Open-Id": oid,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }, method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        print("clear resp:", resp.read().decode("utf-8"))
+
+
 def _cell_text(c):
     cv = (c or {}).get("cellValue") or {}
     if "number" in cv and cv["number"] is not None:
@@ -247,9 +267,10 @@ def main():
             _cell(name), _cell(e_val), _cell(f_val), _cell(daily), _cell(hdays),
         ]})
 
-    # 写月供总表：C2结算月份；D3起成员数据（末尾补5行空）
+    # 写月供总表：C2结算月份；D3起成员数据（先清空旧数据区，避免旧数值残留）
     month_row = [{"values": [_cell("%d-%02d" % (prev_year, prev_month))]}]
     write_range(token, cid, oid, 1, 2, month_row, sheet_id=SHEET_MONTHLY)
+    clear_range(token, cid, oid, SHEET_MONTHLY, "D3:H40")
     for _ in range(5):
         monthly_rows.append({"values": [_cell("") for _ in range(5)]})
     write_range(token, cid, oid, 2, 3, monthly_rows, sheet_id=SHEET_MONTHLY)
