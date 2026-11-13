@@ -228,6 +228,7 @@ def main():
         f_start = baseline.get(_norm(name))
         if join > prev_last:
             # 本月新入团，上月不在团：只留名字，数值留空
+            print("monthly skip(new):", name, join)
             monthly_rows.append({"values": [_cell(name), _cell(""), _cell(""), _cell(""), _cell("")]})
             continue
         if join <= prev_first:
@@ -241,6 +242,7 @@ def main():
             daily = round((f_end - e_val) / hdays)
         else:
             daily = ""
+        print("monthly:", name, join, "E=", e_val, "F=", f_val, "daily=", daily, "H=", hdays)
         monthly_rows.append({"values": [
             _cell(name), _cell(e_val), _cell(f_val), _cell(daily), _cell(hdays),
         ]})
