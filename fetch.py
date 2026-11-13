@@ -70,7 +70,7 @@ def read_range(token, cid, oid, sheet_id, rng):
     url = DOCS_BASE + "/openapi/spreadsheet/v3/files/%s/%s/%s" % (
         urllib.parse.quote(FILE_ID, safe=""),
         sheet_id,
-        urllib.parse.quote(rng, safe=""),
+        urllib.parse.quote(rng, safe=":"),
     )
     req = urllib.request.Request(
         url, headers={
@@ -86,6 +86,8 @@ def read_range(token, cid, oid, sheet_id, rng):
     out = []
     for row in rows:
         out.append([_cell_text(c) for c in (row.get("values") or [])])
+    if not out:
+        print("read_range empty, url:", url, "| body:", json.dumps(body, ensure_ascii=False)[:500])
     return out
 
 
@@ -202,9 +204,9 @@ def main():
         if any(("成员名" in str(x)) or ("月初粉丝" in str(x)) for x in r):
             header_row_idx = i
             break
-    if header_row_idx is None:
+    if hist_rows and header_row_idx is None:
         header_row_idx = 1
-    header = hist_rows[header_row_idx]
+    header = hist_rows[header_row_idx] if header_row_idx is not None and header_row_idx < len(hist_rows) else []
     label = "%d月初粉丝" % prev_month
     col_idx = next((i for i, h in enumerate(header) if str(h).strip() == label), None)
     baseline = {}
