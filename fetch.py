@@ -210,12 +210,13 @@ def main():
     header = hist_rows[header_row_idx] if header_row_idx is not None and header_row_idx < len(hist_rows) else []
     label = "%d月初粉丝" % prev_month
     col_idx = next((i for i, h in enumerate(header) if str(h).strip() == label), None)
+    name_col = next((i for i, h in enumerate(header) if str(h).strip() == "成员名"), 1)
     baseline = {}
     if header_row_idx is not None:
         for r in hist_rows[header_row_idx + 1:]:
-            if r and str(r[0]).strip():
+            if r and len(r) > name_col and str(r[name_col]).strip():
                 v = r[col_idx] if col_idx is not None and len(r) > col_idx else ""
-                baseline[_norm(r[0])] = v
+                baseline[_norm(r[name_col])] = v
     print("history header row:", header_row_idx, header, "| baseline col:", col_idx, "| baseline n:", len(baseline))
 
     month_prefix = month_start.strftime("%Y-%m-%dT00:00:00")
